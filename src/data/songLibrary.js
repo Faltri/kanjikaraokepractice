@@ -129,5 +129,100 @@ export const SONG_LIBRARY = [
 マイハニー　努力　未来　A BEAUTIFUL STAR
 努力　未来　A BEAUTIFUL STAR
 努力　未来　A BEAUTIFUL STAR`
+    },
+    {
+        id: 'eine-kleine-kenshi-yonezu',
+        title: 'アイネクライネ (Eine Kleine)',
+        artist: '米津玄師 (Kenshi Yonezu)',
+        audioUrl: 'https://www.youtube.com/watch?v=-EKxzId_Sj4',
+        lyrics: `あたしあなたに会えて本当に嬉しいのに
+当たり前のようにそれらすべてが悲しいんだ
+今痛いくらい幸せな思い出が
+いつか来るお別れを育てて歩く
+
+誰かの居場所を奪い生きるくらいならばもう
+あたしは石ころにでもなれたらいいな
+だとしたら勘違いも戸惑いもない
+そうやってあなたまでも知らないままで
+
+あなたにあたしの思いが全部伝わってほしいのに
+誰にも言えない秘密があって嘘をついてしまうのだ
+あなたが思えば思うよりいくつもあたしは意気地ないのに
+どうして`
+    },
+    {
+        id: 'white-noise-hige-dan',
+        title: 'White Noise',
+        artist: 'Official髭男dism',
+        audioUrl: 'https://www.youtube.com/watch?v=_ciXS_r2_Ew',
+        lyrics: `街を切り裂くような風の音が
+路地裏の僕等を嘲笑う声のようで
+瓦礫の山積みの中から
+一つだけの答えを見つけ出そうとしてる
+
+絶望の淵でも光を探してる
+瓦礫の下に埋もれた希望の種
+
+君と未来を迎えに行こう
+この世界が壊れても
+二人の絆は消えない
+White Noise かき消すように
+強く強く叫ぶんだ`
+    },
+    {
+        id: 'touch-you-yarichin',
+        title: 'Touch You',
+        artist: 'Yarichin Bitch Club',
+        audioUrl: 'https://www.youtube.com/watch?v=s0YRy2E4C4k',
+        lyrics: `ああん、ああん、ああん、ああん
+安らガリの
+ああん、ああん、ああん、ああん
+興奮しちゃう
+
+触って　触って
+Touch you...
+君の指先で　イかせちゃって
+`
+    },
+    {
+        id: 'onegai-muscle',
+        title: 'お願いマッスル (Onegai Muscle)',
+        artist: '紗倉ひびき(ファイルーズあい) & 街雄鳴造(石川界人)',
+        audioUrl: 'https://www.youtube.com/watch?v=2pECnr5MNuU',
+        lyrics: `お願いマッスル
+めっちゃモテたい
+お願いマッスル
+めっちゃ痩せたい、YES
+お願いマッスル
+めっちゃモテたいから
+ウー！(ウー！)
+キレてるよ！(キレてるよ！)
+ハッ！(ハッ！)
+サイドチェスト！
+
+ダンベル何キロ持てる？
+辛いトレーニングなら
+ちょっと工夫を入れよう
+筋肉にお願い！
+ヒップレイズ！サイドベント！
+腹筋6LDKかい！`
+    },
+    {
+        id: 'kawaki-wo-ameku-minami',
+        title: 'カワキヲアメク (Kawaki wo Ameku)',
+        artist: '美波 (Minami)',
+        audioUrl: 'https://www.youtube.com/watch?v=0YF8vecQWYs',
+        lyrics: `未熟　無常　されど　美しくあれ
+No Destiny　ふさわしく無い
+こんなんじゃ　まだ終われない
+もっと良くなれる
+
+言葉はまた　飾り気のない
+透明なガラス玉のように
+心の奥　見透かされてく
+隠せない　嘘も真実も
+
+渇きを叫べ　雨を待つのではなく
+自ら嵐を呼び起こせ`
     }
 ]
