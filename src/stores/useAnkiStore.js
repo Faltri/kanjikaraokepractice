@@ -145,6 +145,30 @@ export const useAnkiStore = create(
                 }))
             },
 
+            updateCard: (text, updates) => {
+                set(state => {
+                    const newSessionCards = state.sessionCards.map(card =>
+                        card.text === text ? { ...card, ...updates } : card
+                    )
+
+                    // Also update the card in the stored deck if possible
+                    const newDecks = { ...state.decks }
+                    if (state.currentDeckId && newDecks[state.currentDeckId]) {
+                        newDecks[state.currentDeckId] = {
+                            ...newDecks[state.currentDeckId],
+                            tokens: newDecks[state.currentDeckId].tokens.map(token =>
+                                token.text === text ? { ...token, ...updates } : token
+                            )
+                        }
+                    }
+
+                    return {
+                        sessionCards: newSessionCards,
+                        decks: newDecks
+                    }
+                })
+            },
+
             // Reset session
             endSession: () => {
                 set({

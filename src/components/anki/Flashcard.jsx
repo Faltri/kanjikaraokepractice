@@ -70,9 +70,11 @@ export default function Flashcard({
                         </span>
                     )}
 
+
                     {token.definition && (
-                        <div className="mt-2 px-3 py-1.5 rounded-lg bg-accent-gold/10 border border-accent-gold/20 max-w-full">
-                            <p className="text-sm font-medium text-accent-gold text-center leading-tight">
+                        <div className="mt-4 w-full px-4 py-3 rounded-xl bg-bg-tertiary border border-accent-gold/20 shadow-[inset_0_0_10px_rgba(255,215,0,0.1)]">
+                            <p className="text-xs text-text-muted uppercase tracking-wider mb-1 text-center">Meaning</p>
+                            <p className="text-base font-medium text-accent-gold text-center leading-snug break-all">
                                 {token.definition}
                             </p>
                         </div>

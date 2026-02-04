@@ -12,7 +12,7 @@ const defaultSettings = {
     difficulty: 'MEDIUM',
     geminiApiKey: '',
     geminiModel: 'gemini-1.5-flash',
-    useAIRefinement: false
+    useAIRefinement: true
 }
 
 export const useSettingsStore = create(

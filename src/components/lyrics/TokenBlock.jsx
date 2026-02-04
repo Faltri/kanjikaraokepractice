@@ -47,7 +47,7 @@ export default function TokenBlock({
                 </span>
             )}
 
-            {showRomaji && token.romaji && token.romaji !== token.text && (
+            {Boolean(showRomaji) && token.romaji && token.romaji !== token.text && (
                 <span className="block text-[0.4em] text-text-muted text-center romaji-text">
                     {token.romaji}
                 </span>

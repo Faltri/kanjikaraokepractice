@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
+import ReactPlayer from 'react-player'
 import { Play, Pause, SkipBack, SkipForward, RotateCcw, Languages } from 'lucide-react'
 import { useLyricStore } from '../../stores/useLyricStore'
 import { useGameStore } from '../../stores/useGameStore'
+import { useSettingsStore } from '../../stores/useSettingsStore'
 import Button from '../ui/Button'
 import Card from '../ui/Card'
 import Modal from '../ui/Modal'
@@ -23,6 +25,7 @@ export default function KaraokePlayer() {
         currentLineIndex,
         currentTokenIndex,
         isAutoPlaying,
+        isRecording,
         startGame,
         pauseGame,
         resumeGame,
@@ -34,16 +37,9 @@ export default function KaraokePlayer() {
         setLineIndex
     } = useGameStore()
 
-    const audioRef = useRef(null)
+    const playerRef = useRef(null)
     const timerRef = useRef(null)
     const containerRef = useRef(null)
-
-    // Sync audio speed
-    useEffect(() => {
-        if (audioRef.current) {
-            audioRef.current.playbackRate = speed
-        }
-    }, [speed])
 
     // Auto-advance logic
     useEffect(() => {
@@ -54,15 +50,7 @@ export default function KaraokePlayer() {
                 clearInterval(timerRef.current)
                 timerRef.current = null
             }
-            if (audioRef.current && !audioRef.current.paused) {
-                audioRef.current.pause()
-            }
             return
-        }
-
-        // Start audio if not playing
-        if (audioRef.current && audioRef.current.paused) {
-            audioRef.current.play().catch(e => console.warn('Audio play failed:', e))
         }
 
         const currentLine = parsedLines[currentLineIndex]
@@ -76,7 +64,6 @@ export default function KaraokePlayer() {
                 if (currentLineIndex >= parsedLines.length - 1) {
                     pauseGame()
                     toggleAutoPlay()
-                    if (audioRef.current) audioRef.current.pause()
                 } else {
                     nextLine()
                 }
@@ -111,19 +98,17 @@ export default function KaraokePlayer() {
                 toggleAutoPlay()
             }
             pauseGame()
-            if (audioRef.current) audioRef.current.pause()
         } else if (mode === 'paused') {
             resumeGame()
             if (!isAutoPlaying) {
                 toggleAutoPlay()
             }
-            if (audioRef.current) audioRef.current.play()
         }
     }
 
     const handleRestart = () => {
-        if (audioRef.current) {
-            audioRef.current.currentTime = 0
+        if (playerRef.current) {
+            playerRef.current.seekTo(0)
         }
         resetGame()
         startGame()
@@ -136,6 +121,7 @@ export default function KaraokePlayer() {
         e?.stopPropagation()
         setLineIndex(lineIndex)
         // If we had timestamps, we would seek audio here
+        // if (playerRef.current && lineTimings[lineIndex]) playerRef.current.seekTo(lineTimings[lineIndex])
     }
 
     const [selectedToken, setSelectedToken] = useState(null)
@@ -149,10 +135,33 @@ export default function KaraokePlayer() {
         nextLine()
     }
 
+    // ... (keep verifyTokenWithAI and handleTokenClick same)
+
     const verifyTokenWithAI = async (token) => {
         setVerifying(true)
+
+        // Ensure API Key and Model are set
+        const { geminiApiKey, geminiModel } = useSettingsStore.getState()
+        if (geminiApiKey) {
+            aiService.setApiKey(geminiApiKey)
+        }
+        if (geminiModel) {
+            aiService.setModel(geminiModel)
+        }
+
         const context = parsedLines[token.position.line].map(t => t.text).join('')
-        const data = await aiService.verifyToken(token.text, context)
+        let data = await aiService.verifyToken(token.text, context)
+
+        // Local Fallback Algorithm: Use existing token data if AI fails
+        if (!data) {
+            console.warn('AI Verification failed, using local fallback.')
+            data = {
+                reading: token.reading, // From Kuroshiro / Local Parser
+                definition: 'Definition unavailable (AI offline).',
+                notes: 'Local dictionary fallback'
+            }
+        }
+
         setVerificationData(data)
 
         if (data && data.reading) {
@@ -174,7 +183,7 @@ export default function KaraokePlayer() {
             setVerificationData({
                 reading: token.reading,
                 definition: token.definition,
-                notes: 'From text analysis'
+                notes: token.notes || 'From text analysis'
             })
         } else {
             verifyTokenWithAI(token)
@@ -197,17 +206,35 @@ export default function KaraokePlayer() {
 
     return (
         <div className="space-y-4" onClick={handleBackgroundClick}>
-            {/* Hidden Audio Element */}
+            {/* Audio/Video Player */}
             {audioUrl && (
-                <audio
-                    ref={audioRef}
-                    src={audioUrl}
-                    onEnded={() => {
-                        pauseGame()
-                        if (isAutoPlaying) toggleAutoPlay()
-                    }}
-                />
+                <div className="fixed bottom-4 right-4 z-50 opacity-80 hover:opacity-100 transition-opacity rounded-xl overflow-hidden shadow-2xl border border-white/20 w-48 h-28 hidden sm:block">
+                    <ReactPlayer
+                        ref={playerRef}
+                        url={audioUrl}
+                        playing={mode === 'playing' && isAutoPlaying}
+                        playbackRate={speed}
+                        width="100%"
+                        height="100%"
+                        controls={false}
+                        onEnded={() => {
+                            pauseGame()
+                            if (isAutoPlaying) toggleAutoPlay()
+                        }}
+                        onError={(e) => console.error("Player Error:", e)}
+                    />
+                </div>
             )}
+            {/* Hidden player for mobile/audio-only fallback if needed, or just let the above handle it. 
+                Actually, putting it visible is better for debugging and user trust if it is a video. 
+                I made it small fixed bottom-right. */}
+
+            {/* Only rendering one player instance. If on mobile, it might need different styling. 
+                For now, let's keep it simple: If audioUrl exists, render ReactPlayer. 
+                The fixed positioning ensures it doesn't break layout but is inspectable.
+            */}
+
+
 
             {/* Song Info */}
             <div className="flex items-center justify-between">
@@ -221,14 +248,61 @@ export default function KaraokePlayer() {
                 </div>
                 <div className="flex items-center gap-3">
                     <Button
+                        variant={isRecording ? "neon-red" : "ghost"}
+                        size="sm"
+                        onClick={() => {
+                            useGameStore.getState().setIsRecording(!isRecording)
+                            if (!isRecording) {
+                                // Start recording: Set start time for current line
+                                useGameStore.getState().setStartTime(Date.now())
+                            } else {
+                                // Stop recording
+                                useGameStore.getState().setStartTime(null)
+                            }
+                        }}
+                        className={cn(
+                            "transition-colors",
+                            isRecording && "animate-pulse"
+                        )}
+                        title={isRecording ? "Stop Recording Timings" : "Record Line Timings"}
+                    >
+                        <div className={cn("w-3 h-3 rounded-full mr-2", isRecording ? "bg-red-500" : "bg-text-secondary")} />
+                        {isRecording ? "REC" : "Timing"}
+                    </Button>
+
+                    <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setShowTranslation(!showTranslation)}
+                        onClick={async () => {
+                            const newShow = !showTranslation
+                            setShowTranslation(newShow)
+
+                            // If showing and translations are missing/empty, try to generate them
+                            if (newShow && (!lineTranslations || lineTranslations.length === 0 || lineTranslations.every(t => !t))) {
+                                const apiKey = useSettingsStore.getState().geminiApiKey
+                                if (!apiKey) return
+
+                                const parsedLines = useLyricStore.getState().parsedLines
+                                const lines = parsedLines.map(line => line.map(t => t.text).join(''))
+
+                                aiService.setApiKey(apiKey)
+
+                                const translations = await aiService.generateTranslations(lines)
+                                if (translations) {
+                                    useLyricStore.getState().setParsedData(
+                                        parsedLines,
+                                        useLyricStore.getState().allTokens,
+                                        useLyricStore.getState().kanjiTokens,
+                                        translations
+                                    )
+                                }
+                            }
+                        }}
                         className={cn(
                             "transition-colors",
                             showTranslation ? "text-accent-cyan bg-accent-cyan/10" : "text-text-secondary hover:text-text-primary"
                         )}
-                        title="Toggle Translation"
+                        title="Toggle English Translation"
                     >
                         <Languages size={20} />
                     </Button>
@@ -292,7 +366,7 @@ export default function KaraokePlayer() {
                                 />
                                 {showTranslation && (
                                     <p className="text-sm text-text-secondary/80 mt-2 text-center font-medium italic">
-                                        {lineTranslations[lineIndex]}
+                                        {lineTranslations[lineIndex] || 'Translation not available'}
                                     </p>
                                 )}
                             </motion.div>

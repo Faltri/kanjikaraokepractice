@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Shuffle, ArrowLeft, ArrowRight } from 'lucide-react'
 import { useAnkiStore } from '../../stores/useAnkiStore'
 import { useLyricStore } from '../../stores/useLyricStore'
+import { useSettingsStore } from '../../stores/useSettingsStore'
+import { aiService } from '../../engines/AIService'
 import Flashcard from './Flashcard'
 import Button from '../ui/Button'
 import ProgressTracker from './ProgressTracker'
@@ -25,7 +27,8 @@ export default function FlashcardDeck() {
         endSession
     } = useAnkiStore()
 
-    const { kanjiTokens, currentSong } = useLyricStore()
+    const { kanjiTokens, currentSong, parsedLines, updateToken } = useLyricStore()
+    const { geminiApiKey, geminiModel } = useSettingsStore()
 
     const currentCard = sessionCards[currentCardIndex]
     const progress = getSessionProgress()
@@ -34,12 +37,56 @@ export default function FlashcardDeck() {
     useEffect(() => {
         if (kanjiTokens.length > 0 && currentSong?.id) {
             if (sessionCards.length === 0 || currentDeckId !== currentSong.id) {
-                // Create deck/ensure deck exists and start session
                 useAnkiStore.getState().createDeck(currentSong.id, kanjiTokens)
                 startSession(currentSong.id)
             }
         }
     }, [kanjiTokens, currentSong, currentDeckId, sessionCards.length, startSession])
+
+    // On-demand verification when flipped if missing definition
+    useEffect(() => {
+        const verify = async () => {
+            if (isFlipped && currentCard && !currentCard.definition) {
+                // Find context
+                let context = ''
+                if (currentCard.position) {
+                    const line = parsedLines[currentCard.position.line]
+                    if (line) context = line.map(t => t.text).join('')
+                }
+
+                if (geminiApiKey) {
+                    aiService.setApiKey(geminiApiKey)
+                    if (geminiModel) aiService.setModel(geminiModel)
+
+                    // Helper to find the token in the store to update
+                    // We need to update both LyricStore (source of truth) and AnkiStore (current session view)
+                    // Ideally AnkiStore cards should update if LyricStore updates, but they might be decoupled copies.
+
+                    // Set a temporary loading specific to this card? 
+                    // Or just let it pop in. 
+
+                    const data = await aiService.verifyToken(currentCard.text, context)
+                    if (data) {
+                        // Update LyricStore
+                        if (currentCard.id) {
+                            updateToken(currentCard.id, {
+                                reading: data.reading,
+                                definition: data.definition
+                            })
+
+                            // Update AnkiStore (We need a method for this, or just update the local object via mutation if zustand allows, or custom action)
+                            // For now, let's assume we need to update the session card directly.
+                            useAnkiStore.getState().updateCard(currentCard.text, {
+                                reading: data.reading,
+                                definition: data.definition
+                            })
+                        }
+                    }
+                }
+            }
+        }
+        verify()
+    }, [isFlipped, currentCard, geminiApiKey, geminiModel, parsedLines, updateToken])
 
     const handleFlip = () => {
         setIsFlipped(!isFlipped)

@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Search, Music2, Loader2, Sparkles } from 'lucide-react'
+import { Search, Music2, Loader2, Sparkles, Book } from 'lucide-react'
 import Button from '../ui/Button'
 import Card from '../ui/Card'
+import SongLibraryModal from './SongLibraryModal'
 import { cn } from '../../utils/helpers'
 import { useLyricStore } from '../../stores/useLyricStore'
 import { useSettingsStore } from '../../stores/useSettingsStore'
@@ -19,6 +20,7 @@ export default function LyricInput({ onParsed }) {
     const [audioUrl, setAudioUrlInput] = useState(useLyricStore.getState().audioUrl || '')
     const [lyrics, setLyrics] = useState(rawLyrics || '') // Initialize with persisted lyrics
     const [loadingMessage, setLoadingMessage] = useState('')
+    const [isLibraryOpen, setIsLibraryOpen] = useState(false)
 
     const handleLyricsChange = (e) => {
         const text = e.target.value
@@ -27,14 +29,14 @@ export default function LyricInput({ onParsed }) {
     }
 
     const handleSubmit = async (e) => {
-        e.preventDefault()
+        e?.preventDefault()
 
         if (!lyrics.trim()) return
 
         setLoading(true)
         // Optimistically update store with current input
         setRawLyrics(lyrics)
-        if (audioUrl) setAudioUrl(audioUrl)
+        setAudioUrl(audioUrl)
 
         if (title || artist) {
             setSongInfo(title || 'Unknown', artist || 'Unknown')
@@ -85,11 +87,17 @@ export default function LyricInput({ onParsed }) {
     const handleAutoFill = async () => {
         if (!title && !artist) return
 
+        const apiKey = useSettingsStore.getState().geminiApiKey
+        if (!apiKey) {
+            setError('Gemini API Key is required. Please set it in Settings.')
+            return
+        }
+
         setLoading(true)
         setLoadingMessage('AI is searching for lyrics...')
 
         try {
-            aiService.setApiKey(geminiApiKey)
+            aiService.setApiKey(apiKey)
             if (geminiModel) aiService.setModel(geminiModel)
 
             // Fix: Use correct state variable contextInfo instead of undefined referenceUrl
@@ -105,6 +113,18 @@ export default function LyricInput({ onParsed }) {
             setLoading(false)
             setLoadingMessage('')
         }
+    }
+
+    const handleLibrarySelect = (song) => {
+        setTitle(song.title)
+        setArtist(song.artist)
+        setAudioUrlInput(song.audioUrl)
+        setLyrics(song.lyrics)
+
+        // Auto-update store so we can "Submit" immediately if desired
+        setSongInfo(song.title, song.artist)
+        setAudioUrl(song.audioUrl)
+        setRawLyrics(song.lyrics)
     }
 
     const handleAudioFile = (e) => {
@@ -127,7 +147,7 @@ export default function LyricInput({ onParsed }) {
     const loadSample = () => {
         setTitle('Lemon')
         setArtist('米津玄師')
-        setAudioUrlInput('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3') // Placeholder audio
+        setAudioUrlInput('https://www.youtube.com/watch?v=SX_ViT4Ra7k') // Official YouTube
         setLyrics(`夢ならばどれほどよかったでしょう
 未だにあなたのことを夢にみる
 忘れた物を取りに帰るように
@@ -141,7 +161,34 @@ export default function LyricInput({ onParsed }) {
 
     return (
         <Card variant="dark" className="w-full">
+            <SongLibraryModal
+                isOpen={isLibraryOpen}
+                onClose={() => setIsLibraryOpen(false)}
+                onSelect={handleLibrarySelect}
+            />
+
             <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Header Section */}
+                <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-4">
+                    <div>
+                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                            <Music2 size={20} className="text-accent-cyan" />
+                            New Song Details
+                        </h3>
+                        <p className="text-xs text-text-muted">Enter details manually or choose from library</p>
+                    </div>
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setIsLibraryOpen(true)}
+                        className="bg-accent-gold/10 text-accent-gold hover:bg-accent-gold/20 border-accent-gold/20"
+                    >
+                        <Book size={16} className="mr-2" />
+                        Open Song Library
+                    </Button>
+                </div>
+
                 {/* Song Info */}
                 <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -173,7 +220,7 @@ export default function LyricInput({ onParsed }) {
                                 onChange={(e) => setArtist(e.target.value)}
                                 placeholder="例: 米津玄師"
                                 className={cn(
-                                    'flex-1 px-3 py-2.5 rounded-xl min-w-0', // Use flex-1 and min-w-0 to prevent overflow
+                                    'flex-1 px-3 py-2.5 rounded-xl min-w-0',
                                     'bg-bg-tertiary/50 border border-white/10',
                                     'text-text-primary placeholder:text-text-muted',
                                     'focus:outline-none focus:border-accent-cyan/50 focus:ring-1 focus:ring-accent-cyan/30',
@@ -200,28 +247,8 @@ export default function LyricInput({ onParsed }) {
                     </div>
                 </div>
 
-                {/* Specific Info / Context (Reverted from Ref URL) */}
-                <div>
-                    <label className="block text-sm text-text-secondary mb-1.5">
-                        Specific Info (Optional) - <span className="text-text-muted text-xs">Album, Context, or Version</span>
-                    </label>
-                    <input
-                        type="text"
-                        value={contextInfo}
-                        onChange={(e) => setContextInfo(e.target.value)}
-                        placeholder="e.g. 'Album: STRAY SHEEP' or 'Live Version'"
-                        className={cn(
-                            'w-full px-3 py-2.5 rounded-xl',
-                            'bg-bg-tertiary/50 border border-white/10',
-                            'text-text-primary placeholder:text-text-muted',
-                            'focus:outline-none focus:border-accent-cyan/50 focus:ring-1 focus:ring-accent-cyan/30',
-                            'transition-all'
-                        )}
-                    />
-                </div>
-
                 {/* Audio Input */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                     <div>
                         <label className="block text-sm text-text-secondary mb-1.5">
                             Audio URL (Optional)
@@ -231,7 +258,7 @@ export default function LyricInput({ onParsed }) {
                                 type="text"
                                 value={audioUrl}
                                 onChange={(e) => setAudioUrlInput(e.target.value)}
-                                placeholder="https://example.com/song.mp3"
+                                placeholder="YouTube URL..."
                                 className={cn(
                                     'flex-1 px-3 py-2.5 rounded-xl min-w-0',
                                     'bg-bg-tertiary/50 border border-white/10',

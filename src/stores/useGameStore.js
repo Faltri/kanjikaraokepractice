@@ -1,10 +1,12 @@
 import { create } from 'zustand'
 import { GAME_CONFIG } from '../utils/constants'
+import { useLyricStore } from './useLyricStore'
 
 const initialState = {
     mode: 'idle', // 'idle' | 'playing' | 'paused' | 'gameover'
     speed: GAME_CONFIG.KARAOKE.DEFAULT_SPEED,
     difficulty: 'MEDIUM',
+    isRecording: false, // New state for timing recording mode
 
     // Karaoke state
     currentLineIndex: 0,
@@ -80,6 +82,17 @@ export const useGameStore = create((set, get) => ({
     // Karaoke mode
     nextLine: () => {
         const state = get()
+
+        // Timing Recording Logic
+        if (state.isRecording && state.sessionStartTime) {
+            const duration = Date.now() - state.sessionStartTime
+            useLyricStore.getState().updateLineTiming(state.currentLineIndex, duration)
+            console.log(`Recorded timing for line ${state.currentLineIndex}: ${duration}ms`)
+
+            // Reset start time for the next line
+            set({ sessionStartTime: Date.now() })
+        }
+
         set({
             currentLineIndex: state.currentLineIndex + 1,
             currentTokenIndex: 0
@@ -103,6 +116,10 @@ export const useGameStore = create((set, get) => ({
     },
 
     toggleAutoPlay: () => set(state => ({ isAutoPlaying: !state.isAutoPlaying })),
+
+    setIsRecording: (isRecording) => set({ isRecording }),
+
+    setStartTime: (time) => set({ sessionStartTime: time }),
 
     // Speed Runner mode
     submitAnswer: (isCorrect) => {

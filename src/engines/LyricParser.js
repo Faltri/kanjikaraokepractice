@@ -111,22 +111,23 @@ class LyricParser {
     async tokenizeLine(line, lineIndex, startTokenIndex) {
         const tokens = []
 
-        // Get reading for the entire line first
-        const hiragana = await this.kuroshiro.convert(line, { to: 'hiragana' })
-        const romaji = await this.kuroshiro.convert(line, { to: 'romaji' })
-
-        // Tokenize by character groups
+        // Tokenize by character groups with simple okurigana support
         let currentGroup = { text: '', type: null }
-        let charIndex = 0
 
         for (const char of line) {
             const charType = getCharType(char)
 
-            if (charType !== currentGroup.type && currentGroup.text) {
+            // Logic to merge Okurigana (Kanji + Hiragana suffixes)
+            // If current char is Hiragana and current group is Kanji, 
+            // OR if current char is Hiragana and current group is already mixed Kanji/Hiragana
+            const isOkurigana = (charType === TOKEN_TYPES.HIRAGANA) &&
+                (currentGroup.type === TOKEN_TYPES.KANJI || currentGroup.type === 'mixed')
+
+            if (charType !== currentGroup.type && currentGroup.text && !isOkurigana) {
                 // Save current group and start new one
                 const token = await this.createToken(
                     currentGroup.text,
-                    currentGroup.type,
+                    currentGroup.type === 'mixed' ? TOKEN_TYPES.KANJI : currentGroup.type, // Treat mixed as Kanji for verification
                     lineIndex,
                     startTokenIndex + tokens.length
                 )
@@ -134,16 +135,22 @@ class LyricParser {
                 currentGroup = { text: '', type: null }
             }
 
+            // Update type if we are merging
+            if (isOkurigana) {
+                currentGroup.type = 'mixed'
+            } else if (!currentGroup.text) {
+                currentGroup.type = charType
+            }
+
             currentGroup.text += char
-            currentGroup.type = charType
-            charIndex++
+            // Remove charIndex++ since it was unused and caused lint error
         }
 
         // Don't forget the last group
         if (currentGroup.text) {
             const token = await this.createToken(
                 currentGroup.text,
-                currentGroup.type,
+                currentGroup.type === 'mixed' ? TOKEN_TYPES.KANJI : currentGroup.type,
                 lineIndex,
                 startTokenIndex + tokens.length
             )

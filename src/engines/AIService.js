@@ -31,31 +31,36 @@ class AIService {
         if (flatTokens.length === 0) return parsedLines
 
         const prompt = `
-            You are an expert Japanese linguist. I am building a lyrics practice app.
-            I have parsed the following Japanese lyrics using a basic NLP engine, which might have incorrect readings (furigana) for some Kanji, especially in the context of song lyrics where readings can be non-standard or context-dependent.
+            You are an expert Japanese linguist specializing in song lyrics and creative readings (Ateji).
+            
+            GOAL: Correct the furigana (readings) for the provided lyrics to match the OFFICIAL song recording exactly.
 
             FULL LYRICS:
             """
             ${fullText}
             """
 
-            CURRENT KANJI TOKENS AND READINGS:
-            ${JSON.stringify(flatTokens.map(t => ({ id: t.id, text: t.text, current_reading: t.reading })), null, 2)}
+            TOKENS TO VERIFY:
+            ${JSON.stringify(flatTokens.map(t => ({ id: t.id, text: t.text, kuroshiro_reading: t.reading })), null, 2)}
 
-            Task:
-            1. Search for the song using the provided lyrics to find an official source with furigana (readings) and meaning.
-            2. Analyze EVERY Kanji token in the context of the song.
-            3. For EACH Kanji token, provide:
-               - The verified reading (furigana).
-               - A concise English definition/meaning SPECIFIC to its usage in this lyric (e.g. if 'sora' is written with 'sky' kanji but means 'heavens', note that).
-            4. PAY ATTENTION to potential reading errors (e.g. 'gen' vs 'i' for '言').
-            5. Return a JSON object containing entries for ALL Kanji tokens representing the full song.
-            6. ADDITIONALLY: Provide an English translation for EACH LINE of the lyrics (sequentially matching the non-empty lines).
-            7. The format should be: { 
-                "enrichments": [ { "id": "token-id", "reading": "...", "definition": "..." }, ... ],
+            INSTRUCTIONS:
+            1. SEARCH for the official lyrics of this song ("${fullText.substring(0, 30).replace(/\n/g, ' ')}..."). 
+            2. Identify the specific reading the singer uses. Lyrics often use "Ateji" (e.g., "未来" read as "asu", "本気" read as "maji").
+            3. Compare the "kuroshiro_reading" (auto-generated) with the OFFICIAL reading.
+            4. Return the corrected data for ALL tokens.
+
+            OUTPUT FORMAT (Strict JSON):
+            { 
+                "enrichments": [ 
+                    { 
+                        "id": "token-id", 
+                        "reading": "verified_hiragana_reading", 
+                        "definition": "concise meaning in context",
+                        "notes": "Note if Ateji or special reading" 
+                    } 
+                ],
                 "translations": [ "Line 1 English", "Line 2 English", ... ]
             }
-            8. Return ONLY the JSON object.
         `
 
         try {
@@ -118,7 +123,8 @@ class AIService {
                             return {
                                 ...token,
                                 reading: data.reading, // Update reading
-                                definition: data.definition // Add definition
+                                definition: data.definition, // Add definition
+                                notes: data.notes // Add usage notes
                             }
                         }
                         return token
@@ -264,12 +270,12 @@ class AIService {
         if (!this.apiKey) return null;
 
         const prompt = `
-            Task: Find a direct, playable audio URL (MP3, M4A, etc.) for the song "${title}" by "${artist}".
+            Task: Find the official YouTube audio/video URL for the song "${title}" by "${artist}".
             
             Instructions:
-            1. Search for official audio previews, Archive.org links, or open-source audio files.
-            2. Do NOT provide YouTube pages or Spotify links (must be a direct file URL for an <audio> tag).
-            3. If you can only find a YouTube Video URL, return that, but label it clearly.
+            1. Search for the official music video or official lyric video on YouTube.
+            2. If official video is not found, find a high-quality "topic" channel upload or valid cover.
+            3. Return the standard YouTube URL (e.g., https://www.youtube.com/watch?v=...).
             4. Output strict JSON.
 
             Output Schema:
@@ -306,7 +312,7 @@ class AIService {
     async verifyToken(tokenText, contextLine) {
         if (!this.apiKey) return null;
 
-        const prompt = `
+        const complexPrompt = `
             Task: detailed analysis of the Japanese word/kanji "${tokenText}" in the context line: "${contextLine}".
             
             Instructions:
@@ -322,27 +328,83 @@ class AIService {
             }
         `;
 
+        const makeRequest = async (prompt, useTools = true) => {
+            const body = {
+                contents: [{ parts: [{ text: prompt }] }],
+                ...(useTools ? { tools: [{ googleSearch: {} }] } : {})
+            };
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+
+            if (!response.ok) throw new Error(`API Error: ${response.status}`);
+
+            const data = await response.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!text) throw new Error('Empty response');
+
+            // Try to extract JSON
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                return JSON.parse(jsonMatch[0]);
+            }
+            throw new Error('No JSON found');
+        };
+
+        try {
+            // Attempt 1: Full Context with Search
+            return await makeRequest(complexPrompt, true);
+        } catch (error) {
+            console.warn('Primary verification failed, retrying simple:', error);
+            try {
+                // Attempt 2: Simple Prompt (No Tools)
+                const simplePrompt = `Identify the Japanese reading (Hiragana) and English meaning of "${tokenText}" in the context: "${contextLine}". Return JSON: {"reading": "...", "definition": "..."}`;
+                return await makeRequest(simplePrompt, false);
+            } catch (retryError) {
+                console.warn('Fallback verification failed:', retryError);
+                return null;
+            }
+        }
+    }
+
+    /**
+     * Generate English translations for lyrics lines.
+     */
+    async generateTranslations(lines) {
+        if (!this.apiKey) return null;
+
+        const linesText = lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
+        const prompt = `
+            Translate the following Japanese song lyrics into English.
+            Maintain the line-by-line structure.
+            Return a JSON array of strings matching the line count.
+            
+            Lyrics:
+            ${linesText}
+            
+            Output Schema:
+            ["Line 1 translation", "Line 2 translation", ...]
+        `;
+
         try {
             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    tools: [{ googleSearch: {} }]
-                })
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
             });
 
             const data = await response.json();
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!text) return null;
 
-            const jsonMatch = text.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                return JSON.parse(jsonMatch[0]);
-            }
+            const jsonMatch = text.match(/\[[\s\S]*\]/);
+            if (jsonMatch) return JSON.parse(jsonMatch[0]);
             return null;
-        } catch (error) {
-            console.warn('Token verification failed:', error);
+        } catch (e) {
+            console.warn('Translation generation failed', e);
             return null;
         }
     }
