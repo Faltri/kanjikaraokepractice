@@ -1,12 +1,13 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Music2, Play } from 'lucide-react'
+import { X, Music2, Play, Search } from 'lucide-react'
 import { SONG_LIBRARY } from '../../data/songLibrary'
 import Button from '../ui/Button'
 import { cn } from '../../utils/helpers'
 
 export default function SongLibraryModal({ isOpen, onClose, onSelect }) {
     const modalRef = useRef(null)
+    const [searchQuery, setSearchQuery] = useState('')
 
     // Close on click outside
     useEffect(() => {
@@ -18,6 +19,8 @@ export default function SongLibraryModal({ isOpen, onClose, onSelect }) {
 
         if (isOpen) {
             document.addEventListener('mousedown', handleClickOutside)
+            // Reset search on open
+            setSearchQuery('')
         }
         return () => {
             document.removeEventListener('mousedown', handleClickOutside)
@@ -25,6 +28,15 @@ export default function SongLibraryModal({ isOpen, onClose, onSelect }) {
     }, [isOpen, onClose])
 
     if (!isOpen) return null
+
+    // Filter and Sort Songs
+    const filteredSongs = SONG_LIBRARY
+        .filter(song => {
+            const query = searchQuery.toLowerCase()
+            return song.title.toLowerCase().includes(query) ||
+                song.artist.toLowerCase().includes(query)
+        })
+        .sort((a, b) => a.title.localeCompare(b.title))
 
     return (
         <AnimatePresence>
@@ -60,33 +72,53 @@ export default function SongLibraryModal({ isOpen, onClose, onSelect }) {
                         </button>
                     </div>
 
+                    {/* Search Bar */}
+                    <div className="p-4 border-b border-white/5 bg-bg-secondary/30">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
+                            <input
+                                type="text"
+                                placeholder="Search by title or artist..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 bg-bg-tertiary border border-white/10 rounded-lg text-white placeholder:text-text-muted focus:outline-none focus:border-accent-cyan/50 focus:ring-1 focus:ring-accent-cyan/50 bg-[#1A1B26]"
+                            />
+                        </div>
+                    </div>
+
                     {/* Content */}
-                    <div className="overflow-y-auto p-6 space-y-4 custom-scrollbar">
-                        {SONG_LIBRARY.map((song) => (
-                            <button
-                                key={song.id}
-                                onClick={() => {
-                                    onSelect(song)
-                                    onClose()
-                                }}
-                                className="w-full group flex items-center gap-4 p-4 rounded-xl bg-bg-tertiary/30 border border-white/5 hover:bg-bg-tertiary hover:border-accent-cyan/30 transition-all text-left"
-                            >
-                                <div className="w-12 h-12 rounded-full bg-bg-secondary flex items-center justify-center group-hover:scale-110 transition-transform border border-white/10 group-hover:border-accent-cyan/50">
-                                    <Play size={20} className="ml-1 text-text-secondary group-hover:text-accent-cyan" />
-                                </div>
-                                <div className="flex-1">
-                                    <h3 className="font-bold text-text-primary group-hover:text-accent-cyan transition-colors">
-                                        {song.title}
-                                    </h3>
-                                    <p className="text-sm text-text-secondary">
-                                        {song.artist}
-                                    </p>
-                                </div>
-                                <div className="text-xs px-2 py-1 rounded bg-white/5 text-text-muted">
-                                    YouTube
-                                </div>
-                            </button>
-                        ))}
+                    <div className="overflow-y-auto p-6 space-y-4 custom-scrollbar flex-1">
+                        {filteredSongs.length > 0 ? (
+                            filteredSongs.map((song) => (
+                                <button
+                                    key={song.id}
+                                    onClick={() => {
+                                        onSelect(song)
+                                        onClose()
+                                    }}
+                                    className="w-full group flex items-center gap-4 p-4 rounded-xl bg-bg-tertiary/30 border border-white/5 hover:bg-bg-tertiary hover:border-accent-cyan/30 transition-all text-left"
+                                >
+                                    <div className="w-12 h-12 rounded-full bg-bg-secondary flex items-center justify-center group-hover:scale-110 transition-transform border border-white/10 group-hover:border-accent-cyan/50">
+                                        <Play size={20} className="ml-1 text-text-secondary group-hover:text-accent-cyan" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h3 className="font-bold text-text-primary group-hover:text-accent-cyan transition-colors">
+                                            {song.title}
+                                        </h3>
+                                        <p className="text-sm text-text-secondary">
+                                            {song.artist}
+                                        </p>
+                                    </div>
+                                    <div className="text-xs px-2 py-1 rounded bg-white/5 text-text-muted">
+                                        YouTube
+                                    </div>
+                                </button>
+                            ))
+                        ) : (
+                            <div className="text-center py-8 text-text-muted">
+                                <p>No songs found matching "{searchQuery}"</p>
+                            </div>
+                        )}
                     </div>
 
                     {/* Footer */}
