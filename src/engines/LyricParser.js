@@ -42,14 +42,24 @@ class LyricParser {
                 dictPath: dictPath
             })
 
-            await this.kuroshiro.init(this.analyzer)
+            // Add timeout to prevent indefinite hanging
+            const initPromise = this.kuroshiro.init(this.analyzer)
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Japanese dictionary initialization timed out (15s)')), 15000)
+            )
+
+            await Promise.race([initPromise, timeoutPromise])
 
             this.initialized = true
             this.onProgress?.('Dictionary loaded!')
             return true
         } catch (error) {
             logger.error('Failed to initialize Kuroshiro:', error)
-            this.onProgress?.('Failed to load dictionary')
+            this.onProgress?.('Failed to load dictionary: ' + error.message)
+            // Cleanup on failure so we can retry later
+            this.initialized = false
+            this.kuroshiro = null
+            this.analyzer = null
             throw error
         } finally {
             this.initializing = false
