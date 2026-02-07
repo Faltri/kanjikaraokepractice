@@ -1,7 +1,8 @@
+import { memo } from 'react'
 import { cn } from '../../utils/helpers'
 import TokenBlock from './TokenBlock'
 
-export default function LyricLine({
+function LyricLine({
     tokens,
     isActive = false,
     highlightedTokenIndex = -1,
@@ -28,3 +29,6 @@ export default function LyricLine({
         </p>
     )
 }
+
+// Memoize to prevent unnecessary re-renders when props haven't changed
+export default memo(LyricLine)

@@ -7,6 +7,7 @@ import { useSettingsStore } from '../stores/useSettingsStore'
 import { useAnkiStore } from '../stores/useAnkiStore'
 import StorageManager from '../engines/StorageManager'
 import { cn } from '../utils/helpers'
+import { UI_CONSTANTS } from '../utils/constants'
 
 export default function SettingsPage() {
     const [exportMessage, setExportMessage] = useState('')
@@ -76,7 +77,7 @@ export default function SettingsPage() {
                 }
             }
         } catch (error) {
-            console.error('Failed to fetch models:', error)
+            // Error handled by errorHandler utility
             alert('Could not fetch models. Check your API key.\n\nError: ' + error.message)
         } finally {
             setLoadingModels(false)
@@ -390,13 +391,23 @@ function TestConnectionButton({ apiKey, model }) {
         setMessage('Testing connection...')
 
         try {
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: "Say 'OK'" }] }]
-                })
-            })
+            // Use AbortController for timeout
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), UI_CONSTANTS.TIMEOUT.CONNECTION_TEST)
+
+            const response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: "Say 'OK'" }] }]
+                    }),
+                    signal: controller.signal
+                }
+            )
+
+            clearTimeout(timeoutId)
 
             const data = await response.json()
 
@@ -411,9 +422,13 @@ function TestConnectionButton({ apiKey, model }) {
                 throw new Error('Invalid response structure')
             }
         } catch (error) {
-            console.error('Test failed', error)
+            // Error message already set in catch block
             setStatus('error')
-            setMessage(error.message)
+            if (error.name === 'AbortError') {
+                setMessage('Connection timeout. Please check your internet connection.')
+            } else {
+                setMessage(error.message || 'Connection test failed')
+            }
         }
     }
 

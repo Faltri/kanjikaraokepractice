@@ -1,5 +1,6 @@
 import { clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import { UI_CONSTANTS } from './constants'
 
 /**
  * Merge Tailwind classes with proper precedence
@@ -40,8 +41,9 @@ export function pickRandom(array, count) {
  */
 export function isKanji(char) {
     const code = char.charCodeAt(0)
-    return (code >= 0x4E00 && code <= 0x9FFF) || // CJK Unified Ideographs
-        (code >= 0x3400 && code <= 0x4DBF)    // CJK Unified Ideographs Extension A
+    const { CHAR_CODES } = UI_CONSTANTS
+    return (code >= CHAR_CODES.KANJI_START && code <= CHAR_CODES.KANJI_END) || // CJK Unified Ideographs
+        (code >= CHAR_CODES.KANJI_EXT_A_START && code <= CHAR_CODES.KANJI_EXT_A_END)    // CJK Unified Ideographs Extension A
 }
 
 /**
@@ -49,7 +51,8 @@ export function isKanji(char) {
  */
 export function isHiragana(char) {
     const code = char.charCodeAt(0)
-    return code >= 0x3040 && code <= 0x309F
+    const { CHAR_CODES } = UI_CONSTANTS
+    return code >= CHAR_CODES.HIRAGANA_START && code <= CHAR_CODES.HIRAGANA_END
 }
 
 /**
@@ -57,7 +60,8 @@ export function isHiragana(char) {
  */
 export function isKatakana(char) {
     const code = char.charCodeAt(0)
-    return code >= 0x30A0 && code <= 0x30FF
+    const { CHAR_CODES } = UI_CONSTANTS
+    return code >= CHAR_CODES.KATAKANA_START && code <= CHAR_CODES.KATAKANA_END
 }
 
 /**

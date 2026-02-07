@@ -3,6 +3,7 @@ import KuromojiAnalyzer from 'kuroshiro-analyzer-kuromoji'
 import { generateId, isKanji, isHiragana, isKatakana, getCharType } from '../utils/helpers'
 import { TOKEN_TYPES } from '../utils/constants'
 import { aiService } from './AIService'
+import { logger } from '../utils/logger'
 
 class LyricParser {
     constructor() {
@@ -35,7 +36,7 @@ class LyricParser {
 
             // Use CDN for dictionary files to avoid local serving issues with .gz files
             const dictPath = 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/'
-            console.log('Initializing Kuromoji with CDN dictPath:', dictPath)
+            logger.debug('Initializing Kuromoji with CDN dictPath:', dictPath)
 
             this.analyzer = new KuromojiAnalyzer({
                 dictPath: dictPath
@@ -47,7 +48,7 @@ class LyricParser {
             this.onProgress?.('Dictionary loaded!')
             return true
         } catch (error) {
-            console.error('Failed to initialize Kuroshiro:', error)
+            logger.error('Failed to initialize Kuroshiro:', error)
             this.onProgress?.('Failed to load dictionary')
             throw error
         } finally {
@@ -90,7 +91,7 @@ class LyricParser {
                     parsedLines = result
                 }
             } catch (e) {
-                console.error('AI Refinement failed:', e)
+                logger.error('AI Refinement failed:', e)
                 // Fallback to original parsedLines, but warn user
             }
         }
@@ -169,13 +170,13 @@ class LyricParser {
                 reading = await this.kuroshiro.convert(text, { to: 'hiragana' })
                 romaji = await this.kuroshiro.convert(text, { to: 'romaji' })
             } catch (e) {
-                console.warn('Failed to convert:', text, e)
+                logger.warn('Failed to convert:', text, e)
             }
         } else if (type === TOKEN_TYPES.HIRAGANA) {
             try {
                 romaji = await this.kuroshiro.convert(text, { to: 'romaji' })
             } catch (e) {
-                console.warn('Failed to convert to romaji:', text, e)
+                logger.warn('Failed to convert to romaji:', text, e)
             }
         }
 

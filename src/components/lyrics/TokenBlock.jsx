@@ -1,8 +1,9 @@
+import { memo } from 'react'
 import { cn } from '../../utils/helpers'
 import { TOKEN_TYPES } from '../../utils/constants'
 import { useSettingsStore } from '../../stores/useSettingsStore'
 
-export default function TokenBlock({
+function TokenBlock({
     token,
     isHighlighted = false,
     onClick,
@@ -55,3 +56,6 @@ export default function TokenBlock({
         </span>
     )
 }
+
+// Memoize to prevent unnecessary re-renders
+export default memo(TokenBlock)

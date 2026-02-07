@@ -1,10 +1,18 @@
+import { UI_CONSTANTS } from '../utils/constants'
+import { logger } from '../utils/logger'
+
 /**
  * AIService handles AI-powered lyric refinement using Google Gemini API.
+ * 
+ * SECURITY NOTE: API keys are stored in localStorage (user-provided).
+ * For production, consider using a backend proxy to protect API keys.
  */
 class AIService {
     constructor() {
         this.apiKey = ''
         this.model = 'gemini-1.5-flash'
+        this.defaultTimeout = UI_CONSTANTS.TIMEOUT.DEFAULT
+        this.activeRequests = new Map() // Track active requests for cancellation
     }
 
     setApiKey(key) {
@@ -13,6 +21,89 @@ class AIService {
 
     setModel(model) {
         this.model = model
+    }
+
+    /**
+     * Cancel an active request by ID
+     * @param {string} requestId - Request ID to cancel
+     */
+    cancelRequest(requestId) {
+        const request = this.activeRequests.get(requestId)
+        if (request && request.controller) {
+            request.controller.abort()
+            this.activeRequests.delete(requestId)
+        }
+    }
+
+    /**
+     * Cancel all active requests
+     */
+    cancelAllRequests() {
+        this.activeRequests.forEach((request, id) => {
+            if (request.controller) {
+                request.controller.abort()
+            }
+        })
+        this.activeRequests.clear()
+    }
+
+    /**
+     * Make a fetch request with timeout and proper error handling
+     * @private
+     * @param {string} url - Request URL
+     * @param {Object} options - Fetch options
+     * @param {number} timeout - Timeout in milliseconds
+     * @param {string} requestId - Optional request ID for cancellation
+     * @returns {Promise<Response>}
+     */
+    async makeRequest(url, options = {}, timeout = this.defaultTimeout, requestId = null) {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+        // Store request for potential cancellation
+        if (requestId) {
+            this.activeRequests.set(requestId, { controller, timeoutId })
+        }
+
+        try {
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal
+            })
+            clearTimeout(timeoutId)
+            if (requestId) {
+                this.activeRequests.delete(requestId)
+            }
+            return response
+        } catch (error) {
+            clearTimeout(timeoutId)
+            if (requestId) {
+                this.activeRequests.delete(requestId)
+            }
+            if (error.name === 'AbortError') {
+                throw new Error(`Request timeout after ${timeout}ms`)
+            }
+            throw error
+        }
+    }
+
+    /**
+     * Build Gemini API URL and headers
+     * Note: Gemini API supports both header and query param auth.
+     * Using query param for compatibility, but headers would be more secure.
+     * @private
+     */
+    buildRequestConfig(endpoint) {
+        const baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models'
+        // Using query param as Gemini API requires it for v1beta endpoint
+        // TODO: Consider backend proxy for production to hide API keys
+        const url = `${baseUrl}/${this.model}:${endpoint}?key=${encodeURIComponent(this.apiKey)}`
+        
+        const headers = {
+            'Content-Type': 'application/json'
+        }
+
+        return { url, headers }
     }
 
     /**
@@ -64,13 +155,10 @@ class AIService {
         `
 
         try {
-            // ... (fetch logic) ...
-            // Use v1beta for better model compatibility by default
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`, {
+            const { url, headers } = this.buildRequestConfig('generateContent')
+            const response = await this.makeRequest(url, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers,
                 body: JSON.stringify({
                     contents: [{
                         parts: [{ text: prompt }]
@@ -79,7 +167,7 @@ class AIService {
                         googleSearch: {} // Enable search for context verification
                     }]
                 })
-            })
+            }, UI_CONSTANTS.TIMEOUT.AI_REFINEMENT) // Longer timeout for AI refinement
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -104,7 +192,7 @@ class AIService {
             try {
                 result = JSON.parse(resultText)
             } catch (e) {
-                console.error('Failed to parse AI response as JSON. Raw text:', resultText)
+                logger.error('Failed to parse AI response as JSON. Raw text:', resultText)
                 throw new Error('AI Refinement returned invalid formatted data')
             }
 
@@ -131,7 +219,7 @@ class AIService {
                     })
                 )
 
-                console.log(`AI Refinement: Enriched ${updatedCount} tokens. loaded ${result.translations?.length || 0} translations.`)
+                logger.info(`AI Refinement: Enriched ${updatedCount} tokens. loaded ${result.translations?.length || 0} translations.`)
                 return {
                     parsedLines: updatedLines,
                     translations: result.translations || []
@@ -140,7 +228,7 @@ class AIService {
 
             return { parsedLines, translations: [] }
         } catch (error) {
-            console.warn('AI Refinement Error:', error.message)
+            logger.warn('AI Refinement Error:', error.message)
             // If AI fails (e.g., quota exceeded), fail gracefully and return original parsing
             return { parsedLines, translations: [] }
         }
@@ -185,24 +273,25 @@ class AIService {
             let response;
             try {
                 // Attempt 1: Try with Google Search Grounding with HIGH threshold to force search
-                response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`, {
+                const { url, headers } = this.buildRequestConfig('generateContent')
+                response = await this.makeRequest(url, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers,
                     body: JSON.stringify({
                         contents: [{ parts: [{ text: prompt }] }],
                         tools: [{
                             googleSearch: {} // Updated from googleSearchRetrieval based on API feedback
                         }]
                     })
-                })
+                }, UI_CONSTANTS.TIMEOUT.AI_REFINEMENT)
 
                 if (!response.ok) {
                     const statusText = await response.text();
-                    console.warn(`Search Grounding attempt failed (${response.status}):`, statusText);
+                    logger.warn(`Search Grounding attempt failed (${response.status}):`, statusText);
                     throw new Error(`Search attempt failed with status: ${response.status}`);
                 }
             } catch (e) {
-                console.warn('Google Search Grounding failed, skipping to simple fallback.', e)
+                logger.warn('Google Search Grounding failed, skipping to simple fallback.', e)
                 throw e; // Throw to outer catch to trigger Hail Mary directly
             }
 
@@ -231,7 +320,7 @@ class AIService {
             try {
                 result = JSON.parse(jsonCandidate)
             } catch (e) {
-                console.warn('Failed to parse AI response as JSON, falling back to raw text', resultText)
+                logger.warn('Failed to parse AI response as JSON, falling back to raw text', resultText)
                 result = { lyrics: resultText, audioUrl: '' }
             }
 
@@ -242,24 +331,25 @@ class AIService {
 
             return result;
         } catch (error) {
-            console.error('AI Song Search Error:', error)
+            logger.error('AI Song Search Error:', error)
 
             // Final Hail Mary: If everything else failed (search error, strict fallback error), 
             // try one last basic request without any complex instructions or tools.
             try {
                 const simplePrompt = `Provide the Japanese lyrics for "${title}" by "${artist}". Return ONLY the lyrics as plain text. Do NOT provide Romaji transliteration.`;
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`, {
+                const { url, headers } = this.buildRequestConfig('generateContent')
+                const response = await this.makeRequest(url, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers,
                     body: JSON.stringify({
                         contents: [{ parts: [{ text: simplePrompt }] }]
                     })
-                });
+                }, UI_CONSTANTS.TIMEOUT.DEFAULT);
                 const data = await response.json();
                 const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
                 if (text) return { lyrics: text, audioUrl: '' };
             } catch (finalError) {
-                console.error('Final fallback failed', finalError);
+                logger.error('Final fallback failed', finalError);
             }
 
             throw error
@@ -285,14 +375,15 @@ class AIService {
         `;
 
         try {
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`, {
+            const { url, headers } = this.buildRequestConfig('generateContent')
+            const response = await this.makeRequest(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }],
                     tools: [{ googleSearch: {} }]
                 })
-            });
+            }, UI_CONSTANTS.TIMEOUT.DEFAULT);
 
             const data = await response.json();
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -305,11 +396,11 @@ class AIService {
             }
             return null;
         } catch (error) {
-            console.warn('Audio search failed:', error);
+            logger.warn('Audio search failed:', error);
             return null;
         }
     }
-    async verifyToken(tokenText, contextLine) {
+    async verifyToken(tokenText, contextLine, requestId = null) {
         if (!this.apiKey) return null;
 
         const complexPrompt = `
@@ -328,17 +419,18 @@ class AIService {
             }
         `;
 
-        const makeRequest = async (prompt, useTools = true) => {
+        const makeVerificationRequest = async (prompt, useTools = true) => {
             const body = {
                 contents: [{ parts: [{ text: prompt }] }],
                 ...(useTools ? { tools: [{ googleSearch: {} }] } : {})
             };
 
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`, {
+            const { url, headers } = this.buildRequestConfig('generateContent')
+            const response = await this.makeRequest(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify(body)
-            });
+            }, UI_CONSTANTS.TIMEOUT.DEFAULT, requestId);
 
             if (!response.ok) throw new Error(`API Error: ${response.status}`);
 
@@ -356,15 +448,15 @@ class AIService {
 
         try {
             // Attempt 1: Full Context with Search
-            return await makeRequest(complexPrompt, true);
+            return await makeVerificationRequest(complexPrompt, true);
         } catch (error) {
-            console.warn('Primary verification failed, retrying simple:', error);
+            logger.warn('Primary verification failed, retrying simple:', error);
             try {
                 // Attempt 2: Simple Prompt (No Tools)
                 const simplePrompt = `Identify the Japanese reading (Hiragana) and English meaning of "${tokenText}" in the context: "${contextLine}". Return JSON: {"reading": "...", "definition": "..."}`;
-                return await makeRequest(simplePrompt, false);
+                return await makeVerificationRequest(simplePrompt, false);
             } catch (retryError) {
-                console.warn('Fallback verification failed:', retryError);
+                logger.warn('Fallback verification failed:', retryError);
                 return null;
             }
         }
@@ -390,11 +482,12 @@ class AIService {
         `;
 
         try {
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`, {
+            const { url, headers } = this.buildRequestConfig('generateContent')
+            const response = await this.makeRequest(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-            });
+            }, UI_CONSTANTS.TIMEOUT.DEFAULT);
 
             const data = await response.json();
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -404,7 +497,7 @@ class AIService {
             if (jsonMatch) return JSON.parse(jsonMatch[0]);
             return null;
         } catch (e) {
-            console.warn('Translation generation failed', e);
+            logger.warn('Translation generation failed', e);
             return null;
         }
     }
