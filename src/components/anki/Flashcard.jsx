@@ -10,7 +10,8 @@ export default function Flashcard({
     onFlip,
     onCorrect,
     onIncorrect,
-    showActions = true
+    showActions = true,
+    isTranslating
 }) {
     if (!token) {
         return (
