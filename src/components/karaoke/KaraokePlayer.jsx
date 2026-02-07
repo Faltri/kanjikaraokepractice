@@ -19,6 +19,7 @@ import { GAME_CONFIG } from '../../utils/constants'
 export default function KaraokePlayer() {
     const { parsedLines, currentSong, audioUrl, lineTranslations, updateToken } = useLyricStore()
     const [showTranslation, setShowTranslation] = useState(false)
+    const [isTranslating, setIsTranslating] = useState(false)
     const {
         mode,
         speed,
@@ -282,19 +283,24 @@ export default function KaraokePlayer() {
                                 const apiKey = useSettingsStore.getState().geminiApiKey
                                 if (!apiKey) return
 
-                                const parsedLines = useLyricStore.getState().parsedLines
-                                const lines = parsedLines.map(line => line.map(t => t.text).join(''))
+                                setIsTranslating(true)
+                                try {
+                                    const parsedLines = useLyricStore.getState().parsedLines
+                                    const lines = parsedLines.map(line => line.map(t => t.text).join(''))
 
-                                aiService.setApiKey(apiKey)
+                                    aiService.setApiKey(apiKey)
 
-                                const translations = await aiService.generateTranslations(lines)
-                                if (translations) {
-                                    useLyricStore.getState().setParsedData(
-                                        parsedLines,
-                                        useLyricStore.getState().allTokens,
-                                        useLyricStore.getState().kanjiTokens,
-                                        translations
-                                    )
+                                    const translations = await aiService.generateTranslations(lines)
+                                    if (translations) {
+                                        useLyricStore.getState().setParsedData(
+                                            parsedLines,
+                                            useLyricStore.getState().allTokens,
+                                            useLyricStore.getState().kanjiTokens,
+                                            translations
+                                        )
+                                    }
+                                } finally {
+                                    setIsTranslating(false)
                                 }
                             }
                         }}
@@ -304,7 +310,11 @@ export default function KaraokePlayer() {
                         )}
                         title="Toggle English Translation"
                     >
-                        <Languages size={20} />
+                        {isTranslating ? (
+                            <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                            <Languages size={20} />
+                        )}
                     </Button>
                     {audioUrl && (
                         <div className="px-3 py-1 rounded-full bg-accent-cyan/10 border border-accent-cyan/20 text-accent-cyan text-xs font-medium animate-pulse">
@@ -366,7 +376,10 @@ export default function KaraokePlayer() {
                                 />
                                 {showTranslation && (
                                     <p className="text-sm text-text-secondary/80 mt-2 text-center font-medium italic">
-                                        {lineTranslations[lineIndex] || 'Translation not available'}
+                                        {isTranslating
+                                            ? 'Loading translation...'
+                                            : (lineTranslations[lineIndex] || 'Translation not available')
+                                        }
                                     </p>
                                 )}
                             </motion.div>

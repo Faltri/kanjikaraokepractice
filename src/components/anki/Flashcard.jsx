@@ -71,14 +71,21 @@ export default function Flashcard({
                     )}
 
 
-                    {token.definition && (
+                    {token.definition ? (
                         <div className="mt-4 w-full px-4 py-3 rounded-xl bg-bg-tertiary border border-accent-gold/20 shadow-[inset_0_0_10px_rgba(255,215,0,0.1)]">
                             <p className="text-xs text-text-muted uppercase tracking-wider mb-1 text-center">Meaning</p>
                             <p className="text-base font-medium text-accent-gold text-center leading-snug break-all">
                                 {token.definition}
                             </p>
                         </div>
-                    )}
+                    ) : isTranslating ? (
+                        <div className="mt-4 w-full px-4 py-3 rounded-xl bg-bg-tertiary border border-accent-gold/20 flex flex-col items-center justify-center animate-pulse">
+                            <p className="text-xs text-text-muted uppercase tracking-wider mb-1 text-center">Meaning</p>
+                            <p className="text-sm font-medium text-accent-gold/70 text-center italic">
+                                Loading translation...
+                            </p>
+                        </div>
+                    ) : null}
                     <div className="mt-4 p-3 rounded-xl bg-bg-tertiary/50">
                         <span className="text-5xl sm:text-6xl jp-text gradient-text font-bold">
                             {token.text}

@@ -12,6 +12,7 @@ import { cn } from '../../utils/helpers'
 
 export default function FlashcardDeck() {
     const [isFlipped, setIsFlipped] = useState(false)
+    const [isTranslating, setIsTranslating] = useState(false)
 
     const {
         sessionCards,
@@ -55,32 +56,34 @@ export default function FlashcardDeck() {
                 }
 
                 if (geminiApiKey) {
-                    aiService.setApiKey(geminiApiKey)
-                    if (geminiModel) aiService.setModel(geminiModel)
+                    setIsTranslating(true)
+                    try {
+                        aiService.setApiKey(geminiApiKey)
+                        if (geminiModel) aiService.setModel(geminiModel)
 
-                    // Helper to find the token in the store to update
-                    // We need to update both LyricStore (source of truth) and AnkiStore (current session view)
-                    // Ideally AnkiStore cards should update if LyricStore updates, but they might be decoupled copies.
+                        // Helper to find the token in the store to update
+                        // We need to update both LyricStore (source of truth) and AnkiStore (current session view)
+                        // Ideally AnkiStore cards should update if LyricStore updates, but they might be decoupled copies.
 
-                    // Set a temporary loading specific to this card? 
-                    // Or just let it pop in. 
+                        const data = await aiService.verifyToken(currentCard.text, context)
+                        if (data) {
+                            // Update LyricStore
+                            if (currentCard.id) {
+                                updateToken(currentCard.id, {
+                                    reading: data.reading,
+                                    definition: data.definition
+                                })
 
-                    const data = await aiService.verifyToken(currentCard.text, context)
-                    if (data) {
-                        // Update LyricStore
-                        if (currentCard.id) {
-                            updateToken(currentCard.id, {
-                                reading: data.reading,
-                                definition: data.definition
-                            })
-
-                            // Update AnkiStore (We need a method for this, or just update the local object via mutation if zustand allows, or custom action)
-                            // For now, let's assume we need to update the session card directly.
-                            useAnkiStore.getState().updateCard(currentCard.text, {
-                                reading: data.reading,
-                                definition: data.definition
-                            })
+                                // Update AnkiStore (We need a method for this, or just update the local object via mutation if zustand allows, or custom action)
+                                // For now, let's assume we need to update the session card directly.
+                                useAnkiStore.getState().updateCard(currentCard.text, {
+                                    reading: data.reading,
+                                    definition: data.definition
+                                })
+                            }
                         }
+                    } finally {
+                        setIsTranslating(false)
                     }
                 }
             }
@@ -189,6 +192,7 @@ export default function FlashcardDeck() {
                         onFlip={handleFlip}
                         onCorrect={handleCorrect}
                         onIncorrect={handleIncorrect}
+                        isTranslating={isTranslating}
                     />
                 </motion.div>
             </AnimatePresence>
