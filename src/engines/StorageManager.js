@@ -1,4 +1,5 @@
-import { STORAGE_KEYS } from '../utils/constants'
+import { STORAGE_KEYS, UI_CONSTANTS } from '../utils/constants'
+import { logger } from '../utils/logger'
 
 class StorageManager {
     static get(key) {
@@ -6,7 +7,7 @@ class StorageManager {
             const item = localStorage.getItem(key)
             return item ? JSON.parse(item) : null
         } catch (error) {
-            console.error(`Error reading from localStorage (${key}):`, error)
+            logger.error(`Error reading from localStorage (${key}):`, error)
             return null
         }
     }
@@ -16,7 +17,35 @@ class StorageManager {
             localStorage.setItem(key, JSON.stringify(value))
             return true
         } catch (error) {
-            console.error(`Error writing to localStorage (${key}):`, error)
+            logger.error(`Error writing to localStorage (${key}):`, error)
+            
+            // Handle quota exceeded error specifically
+            if (error.name === 'QuotaExceededError' || error.code === 22) {
+                logger.warn('localStorage quota exceeded. Consider clearing old data.')
+                // Try to clear old data and retry once
+                try {
+                    // Clear least recently used data (except settings)
+                    const keysToPreserve = [STORAGE_KEYS.SETTINGS]
+                    const allKeys = Object.values(STORAGE_KEYS)
+                    const keysToClear = allKeys.filter(k => !keysToPreserve.includes(k))
+                    
+                    keysToClear.forEach(k => {
+                        try {
+                            localStorage.removeItem(k)
+                        } catch (e) {
+                            // Ignore errors during cleanup
+                        }
+                    })
+                    
+                    // Retry once
+                    localStorage.setItem(key, JSON.stringify(value))
+                    return true
+                } catch (retryError) {
+                    logger.error('Failed to save after cleanup:', retryError)
+                    return false
+                }
+            }
+            
             return false
         }
     }
@@ -26,7 +55,7 @@ class StorageManager {
             localStorage.removeItem(key)
             return true
         } catch (error) {
-            console.error(`Error removing from localStorage (${key}):`, error)
+            logger.error(`Error removing from localStorage (${key}):`, error)
             return false
         }
     }
@@ -38,7 +67,7 @@ class StorageManager {
             })
             return true
         } catch (error) {
-            console.error('Error clearing localStorage:', error)
+            logger.error('Error clearing localStorage:', error)
             return false
         }
     }
@@ -55,9 +84,9 @@ class StorageManager {
             date: Date.now()
         })
 
-        // Sort by score descending, keep top 10
+        // Sort by score descending, keep top N
         scores.sort((a, b) => b.score - a.score)
-        const topScores = scores.slice(0, 10)
+        const topScores = scores.slice(0, UI_CONSTANTS.STORAGE.MAX_HIGH_SCORES)
 
         this.set(STORAGE_KEYS.HIGH_SCORES, topScores)
         return topScores
@@ -80,8 +109,8 @@ class StorageManager {
             lastPlayed: Date.now()
         })
 
-        // Keep only last 10
-        const recent = filtered.slice(0, 10)
+        // Keep only last N
+        const recent = filtered.slice(0, UI_CONSTANTS.STORAGE.MAX_RECENT_SONGS)
 
         this.set(STORAGE_KEYS.RECENT_SONGS, recent)
         return recent
@@ -116,7 +145,7 @@ class StorageManager {
 
             return true
         } catch (error) {
-            console.error('Error importing data:', error)
+            logger.error('Error importing data:', error)
             return false
         }
     }

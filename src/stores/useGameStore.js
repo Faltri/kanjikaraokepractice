@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { GAME_CONFIG } from '../utils/constants'
 import { useLyricStore } from './useLyricStore'
+import { logger } from '../utils/logger'
 
 const initialState = {
     mode: 'idle', // 'idle' | 'playing' | 'paused' | 'gameover'
@@ -87,7 +88,7 @@ export const useGameStore = create((set, get) => ({
         if (state.isRecording && state.sessionStartTime) {
             const duration = Date.now() - state.sessionStartTime
             useLyricStore.getState().updateLineTiming(state.currentLineIndex, duration)
-            console.log(`Recorded timing for line ${state.currentLineIndex}: ${duration}ms`)
+            logger.debug(`Recorded timing for line ${state.currentLineIndex}: ${duration}ms`)
 
             // Reset start time for the next line
             set({ sessionStartTime: Date.now() })

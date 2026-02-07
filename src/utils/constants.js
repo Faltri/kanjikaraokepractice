@@ -40,7 +40,8 @@ export const STORAGE_KEYS = {
     ANKI_PROGRESS: 'karaoke-sensei-anki',
     DECKS: 'karaoke-sensei-decks',
     HIGH_SCORES: 'karaoke-sensei-scores',
-    RECENT_SONGS: 'karaoke-sensei-recent'
+    RECENT_SONGS: 'karaoke-sensei-recent',
+    LYRICS: 'karaoke-sensei-lyrics'
 }
 
 // Token types
@@ -83,3 +84,47 @@ export const COMMON_READINGS = [
     'つき', 'た', 'うえ', 'した', 'なか', 'そと',
     'まえ', 'うしろ', 'みぎ', 'ひだり', 'おお', 'ちい'
 ]
+
+// UI Constants
+export const UI_CONSTANTS = {
+    // Animation durations (ms)
+    ANIMATION: {
+        FAST: 150,
+        NORMAL: 300,
+        SLOW: 500,
+        VERY_SLOW: 1000
+    },
+    
+    // Input limits
+    INPUT: {
+        MAX_SONG_TITLE_LENGTH: 200,
+        MAX_ARTIST_LENGTH: 200,
+        MAX_LYRICS_LENGTH: 10 * 1024 * 1024, // 10MB
+        MIN_API_KEY_LENGTH: 20
+    },
+    
+    // Request timeouts (ms)
+    TIMEOUT: {
+        DEFAULT: 30000,
+        AI_REFINEMENT: 45000,
+        CONNECTION_TEST: 10000
+    },
+    
+    // Storage limits
+    STORAGE: {
+        MAX_RECENT_SONGS: 10,
+        MAX_HIGH_SCORES: 10
+    },
+    
+    // Character code ranges
+    CHAR_CODES: {
+        KANJI_START: 0x4E00,
+        KANJI_END: 0x9FFF,
+        KANJI_EXT_A_START: 0x3400,
+        KANJI_EXT_A_END: 0x4DBF,
+        HIRAGANA_START: 0x3040,
+        HIRAGANA_END: 0x309F,
+        KATAKANA_START: 0x30A0,
+        KATAKANA_END: 0x30FF
+    }
+}

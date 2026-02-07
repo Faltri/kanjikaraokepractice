@@ -24,6 +24,7 @@ export default function Button({
     fullWidth = false,
     className = '',
     onClick,
+    'aria-label': ariaLabel,
     ...props
 }) {
     return (
@@ -40,6 +41,8 @@ export default function Button({
             )}
             disabled={disabled || loading}
             onClick={onClick}
+            aria-label={ariaLabel || (loading ? 'Loading...' : undefined)}
+            aria-busy={loading}
             {...props}
         >
             {loading && (

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import ReactPlayer from 'react-player'
 import { Play, Pause, SkipBack, SkipForward, RotateCcw, Languages } from 'lucide-react'
@@ -15,6 +15,7 @@ import ProgressBar from './ProgressBar'
 import LyricLine from '../lyrics/LyricLine'
 import { cn } from '../../utils/helpers'
 import { GAME_CONFIG } from '../../utils/constants'
+import { logger } from '../../utils/logger'
 
 export default function KaraokePlayer() {
     const { parsedLines, currentSong, audioUrl, lineTranslations, updateToken } = useLyricStore()
@@ -55,14 +56,38 @@ export default function KaraokePlayer() {
         }
 
         const currentLine = parsedLines[currentLineIndex]
-        if (!currentLine) return
+        if (!currentLine || currentLine.length === 0) {
+            // Clear timer if no valid line
+            if (timerRef.current) {
+                clearInterval(timerRef.current)
+                timerRef.current = null
+            }
+            return
+        }
 
         const tokenDuration = (GAME_CONFIG.KARAOKE.LINE_DURATION / currentLine.length) / speed
 
+        // Clear any existing timer before creating a new one
+        if (timerRef.current) {
+            clearInterval(timerRef.current)
+            timerRef.current = null
+        }
+
         timerRef.current = setInterval(() => {
-            const line = parsedLines[currentLineIndex]
-            if (currentTokenIndex >= line.length - 1) {
-                if (currentLineIndex >= parsedLines.length - 1) {
+            const state = useGameStore.getState()
+            const currentLine = parsedLines[state.currentLineIndex]
+            
+            // Safety check: ensure we have valid data
+            if (!currentLine || currentLine.length === 0) {
+                if (timerRef.current) {
+                    clearInterval(timerRef.current)
+                    timerRef.current = null
+                }
+                return
+            }
+
+            if (state.currentTokenIndex >= currentLine.length - 1) {
+                if (state.currentLineIndex >= parsedLines.length - 1) {
                     pauseGame()
                     toggleAutoPlay()
                 } else {
@@ -76,9 +101,10 @@ export default function KaraokePlayer() {
         return () => {
             if (timerRef.current) {
                 clearInterval(timerRef.current)
+                timerRef.current = null
             }
         }
-    }, [isAutoPlaying, mode, speed, currentLineIndex, currentTokenIndex, parsedLines])
+    }, [isAutoPlaying, mode, speed, currentLineIndex, currentTokenIndex, parsedLines, pauseGame, toggleAutoPlay, nextLine, nextToken])
 
     // Scroll to current line
     useEffect(() => {
@@ -90,7 +116,7 @@ export default function KaraokePlayer() {
         }
     }, [currentLineIndex])
 
-    const handlePlayPause = () => {
+    const handlePlayPause = useCallback(() => {
         if (mode === 'idle') {
             startGame()
             toggleAutoPlay()
@@ -105,9 +131,9 @@ export default function KaraokePlayer() {
                 toggleAutoPlay()
             }
         }
-    }
+    }, [mode, isAutoPlaying, startGame, toggleAutoPlay, pauseGame, resumeGame])
 
-    const handleRestart = () => {
+    const handleRestart = useCallback(() => {
         if (playerRef.current) {
             playerRef.current.seekTo(0)
         }
@@ -116,63 +142,94 @@ export default function KaraokePlayer() {
         if (!isAutoPlaying) {
             toggleAutoPlay()
         }
-    }
+    }, [resetGame, startGame, isAutoPlaying, toggleAutoPlay])
 
-    const handleLineClick = (lineIndex, e) => {
+    const handleLineClick = useCallback((lineIndex, e) => {
         e?.stopPropagation()
         setLineIndex(lineIndex)
         // If we had timestamps, we would seek audio here
         // if (playerRef.current && lineTimings[lineIndex]) playerRef.current.seekTo(lineTimings[lineIndex])
-    }
+    }, [setLineIndex])
 
     const [selectedToken, setSelectedToken] = useState(null)
     const [verificationData, setVerificationData] = useState(null)
     const [verifying, setVerifying] = useState(false)
+    const verificationRequestIdRef = useRef(null)
 
-    const handleBackgroundClick = (e) => {
+    const handleBackgroundClick = useCallback((e) => {
         // Ignore if clicking interactive elements
         // .jp-text is usage in TokenBlock
         if (e.target.closest('button') || e.target.closest('.modal-content') || e.target.closest('.jp-text')) return
         nextLine()
-    }
+    }, [nextLine])
 
     // ... (keep verifyTokenWithAI and handleTokenClick same)
 
-    const verifyTokenWithAI = async (token) => {
+    const verifyTokenWithAI = useCallback(async (token) => {
+        // Cancel any existing verification request
+        if (verificationRequestIdRef.current) {
+            aiService.cancelRequest(verificationRequestIdRef.current)
+        }
+
         setVerifying(true)
+        setVerificationData(null)
 
-        // Ensure API Key and Model are set
-        const { geminiApiKey, geminiModel } = useSettingsStore.getState()
-        if (geminiApiKey) {
-            aiService.setApiKey(geminiApiKey)
-        }
-        if (geminiModel) {
-            aiService.setModel(geminiModel)
-        }
+        // Generate unique request ID for cancellation
+        const requestId = `verify-${token.id}-${Date.now()}`
+        verificationRequestIdRef.current = requestId
 
-        const context = parsedLines[token.position.line].map(t => t.text).join('')
-        let data = await aiService.verifyToken(token.text, context)
+        try {
+            // Ensure API Key and Model are set
+            const { geminiApiKey, geminiModel } = useSettingsStore.getState()
+            if (geminiApiKey) {
+                aiService.setApiKey(geminiApiKey)
+            }
+            if (geminiModel) {
+                aiService.setModel(geminiModel)
+            }
 
-        // Local Fallback Algorithm: Use existing token data if AI fails
-        if (!data) {
-            console.warn('AI Verification failed, using local fallback.')
-            data = {
-                reading: token.reading, // From Kuroshiro / Local Parser
-                definition: 'Definition unavailable (AI offline).',
-                notes: 'Local dictionary fallback'
+            const context = parsedLines[token.position.line].map(t => t.text).join('')
+            let data = await aiService.verifyToken(token.text, context, requestId)
+
+            // Check if request was cancelled
+            if (verificationRequestIdRef.current !== requestId) {
+                return // Request was cancelled, don't update state
+            }
+
+            // Local Fallback Algorithm: Use existing token data if AI fails
+            if (!data) {
+                logger.warn('AI Verification failed, using local fallback.')
+                data = {
+                    reading: token.reading, // From Kuroshiro / Local Parser
+                    definition: 'Definition unavailable (AI offline).',
+                    notes: 'Local dictionary fallback'
+                }
+            }
+
+            setVerificationData(data)
+
+            if (data && data.reading) {
+                updateToken(token.id, {
+                    reading: data.reading,
+                    definition: data.definition
+                })
+            }
+        } catch (error) {
+            // Only update if this request wasn't cancelled
+            if (verificationRequestIdRef.current === requestId) {
+                setVerificationData({
+                    reading: token.reading,
+                    definition: 'Error retrieving definition. Please try again.',
+                    notes: 'Request failed'
+                })
+            }
+        } finally {
+            if (verificationRequestIdRef.current === requestId) {
+                setVerifying(false)
+                verificationRequestIdRef.current = null
             }
         }
-
-        setVerificationData(data)
-
-        if (data && data.reading) {
-            updateToken(token.id, {
-                reading: data.reading,
-                definition: data.definition
-            })
-        }
-        setVerifying(false)
-    }
+    }, [parsedLines, updateToken])
 
     const handleTokenClick = (token) => {
         if (token.type !== 'kanji') return
@@ -191,9 +248,21 @@ export default function KaraokePlayer() {
         }
     }
 
-    const progress = parsedLines.length > 0
-        ? ((currentLineIndex + (currentTokenIndex / (parsedLines[currentLineIndex]?.length || 1))) / parsedLines.length) * 100
-        : 0
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (verificationRequestIdRef.current) {
+                aiService.cancelRequest(verificationRequestIdRef.current)
+            }
+        }
+    }, [])
+
+    const progress = useMemo(() => {
+        if (parsedLines.length === 0) return 0
+        const currentLine = parsedLines[currentLineIndex]
+        const lineProgress = currentLine ? (currentTokenIndex / currentLine.length) : 0
+        return ((currentLineIndex + lineProgress) / parsedLines.length) * 100
+    }, [parsedLines, currentLineIndex, currentTokenIndex])
 
     if (parsedLines.length === 0) {
         return (
@@ -222,7 +291,7 @@ export default function KaraokePlayer() {
                             pauseGame()
                             if (isAutoPlaying) toggleAutoPlay()
                         }}
-                        onError={(e) => console.error("Player Error:", e)}
+                        onError={(e) => logger.error("Player Error:", e)}
                     />
                 </div>
             )}
@@ -265,9 +334,11 @@ export default function KaraokePlayer() {
                             "transition-colors",
                             isRecording && "animate-pulse"
                         )}
+                        aria-label={isRecording ? "Stop Recording Timings" : "Record Line Timings"}
+                        aria-pressed={isRecording}
                         title={isRecording ? "Stop Recording Timings" : "Record Line Timings"}
                     >
-                        <div className={cn("w-3 h-3 rounded-full mr-2", isRecording ? "bg-red-500" : "bg-text-secondary")} />
+                        <div className={cn("w-3 h-3 rounded-full mr-2", isRecording ? "bg-red-500" : "bg-text-secondary")} aria-hidden="true" />
                         {isRecording ? "REC" : "Timing"}
                     </Button>
 
@@ -351,12 +422,23 @@ export default function KaraokePlayer() {
                     `}</style>
                     <div className="max-w-2xl mx-auto space-y-6">
                         {parsedLines.map((tokens, lineIndex) => (
-                            <motion.div
+                                <motion.div
                                 key={lineIndex}
                                 data-active={lineIndex === currentLineIndex}
                                 onClick={(e) => handleLineClick(lineIndex, e)}
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`Lyric line ${lineIndex + 1} of ${parsedLines.length}`}
+                                aria-current={lineIndex === currentLineIndex ? 'true' : 'false'}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault()
+                                        handleLineClick(lineIndex, e)
+                                    }
+                                }}
                                 className={cn(
-                                    'transition-all duration-500 rounded-xl p-4',
+                                    'transition-all duration-500 rounded-xl p-4 cursor-pointer',
+                                    'focus:outline-none focus:ring-2 focus:ring-accent-cyan/50 focus:ring-offset-2',
                                     lineIndex === currentLineIndex
                                         ? 'bg-white/5 shadow-[inset_0_0_20px_rgba(255,255,255,0.02)]'
                                         : 'opacity-20 blur-[1px] hover:blur-0 hover:opacity-50'
@@ -392,13 +474,15 @@ export default function KaraokePlayer() {
             <SpeedControl />
 
             {/* Controls */}
-            <div className="flex items-center justify-center gap-6 pt-2">
+            <div className="flex items-center justify-center gap-6 pt-2" role="group" aria-label="Karaoke playback controls">
                 <Button
                     variant="ghost"
                     size="lg"
                     onClick={previousLine}
                     disabled={currentLineIndex === 0}
                     className="rounded-full w-12 h-12 p-0"
+                    aria-label="Previous line"
+                    title="Previous line"
                 >
                     <SkipBack size={24} />
                 </Button>
@@ -408,6 +492,9 @@ export default function KaraokePlayer() {
                     onClick={handlePlayPause}
                     variant="neon"
                     className="w-20 h-20 rounded-full shadow-cyan-glow"
+                    aria-label={mode === 'playing' && isAutoPlaying ? 'Pause playback' : 'Play karaoke'}
+                    aria-pressed={mode === 'playing' && isAutoPlaying}
+                    title={mode === 'playing' && isAutoPlaying ? 'Pause' : 'Play'}
                 >
                     {mode === 'playing' && isAutoPlaying ? (
                         <Pause size={32} fill="currentColor" />
@@ -422,6 +509,8 @@ export default function KaraokePlayer() {
                     onClick={nextLine}
                     disabled={currentLineIndex >= parsedLines.length - 1}
                     className="rounded-full w-12 h-12 p-0"
+                    aria-label="Next line"
+                    title="Next line"
                 >
                     <SkipForward size={24} />
                 </Button>
@@ -431,6 +520,8 @@ export default function KaraokePlayer() {
                     size="lg"
                     onClick={handleRestart}
                     className="rounded-full w-12 h-12 p-0"
+                    aria-label="Restart from beginning"
+                    title="Restart"
                 >
                     <RotateCcw size={20} />
                 </Button>

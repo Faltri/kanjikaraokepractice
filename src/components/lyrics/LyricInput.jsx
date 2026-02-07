@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Search, Music2, Loader2, Sparkles, Book } from 'lucide-react'
 import Button from '../ui/Button'
 import Card from '../ui/Card'
@@ -8,6 +8,9 @@ import { useLyricStore } from '../../stores/useLyricStore'
 import { useSettingsStore } from '../../stores/useSettingsStore'
 import { lyricParser } from '../../engines/LyricParser'
 import { aiService } from '../../engines/AIService'
+import { handleError } from '../../utils/errorHandler'
+import { sanitizeLyrics, sanitizeSongMetadata, sanitizeURL, isValidYouTubeURL } from '../../utils/sanitize'
+import { debounce } from '../../utils/helpers'
 
 export default function LyricInput({ onParsed }) {
 
@@ -21,11 +24,48 @@ export default function LyricInput({ onParsed }) {
     const [lyrics, setLyrics] = useState(rawLyrics || '') // Initialize with persisted lyrics
     const [loadingMessage, setLoadingMessage] = useState('')
     const [isLibraryOpen, setIsLibraryOpen] = useState(false)
+    const blobUrlRef = useRef(null) // Track blob URLs for cleanup
+
+    // Sync local state with store when store updates
+    useEffect(() => {
+        const storeState = useLyricStore.getState()
+        if (storeState.rawLyrics !== lyrics && storeState.rawLyrics) {
+            setLyrics(storeState.rawLyrics)
+        }
+        if (storeState.audioUrl !== audioUrl && storeState.audioUrl) {
+            setAudioUrlInput(storeState.audioUrl)
+        }
+        if (storeState.currentSong) {
+            if (storeState.currentSong.title !== title) {
+                setTitle(storeState.currentSong.title)
+            }
+            if (storeState.currentSong.artist !== artist) {
+                setArtist(storeState.currentSong.artist)
+            }
+        }
+    }, []) // Only run on mount
+
+    // Cleanup blob URLs on unmount
+    useEffect(() => {
+        return () => {
+            if (blobUrlRef.current) {
+                URL.revokeObjectURL(blobUrlRef.current)
+                blobUrlRef.current = null
+            }
+        }
+    }, [])
+
+    // Debounced function for updating store (keeps UI responsive)
+    const debouncedSetRawLyricsRef = useRef(
+        debounce((text) => {
+            setRawLyrics(text)
+        }, 300)
+    )
 
     const handleLyricsChange = (e) => {
-        const text = e.target.value
-        setLyrics(text)
-        setRawLyrics(text)
+        const text = sanitizeLyrics(e.target.value)
+        setLyrics(text) // Update local state immediately for responsive UI
+        debouncedSetRawLyricsRef.current(text) // Debounce store update
     }
 
     const handleSubmit = async (e) => {
@@ -43,11 +83,19 @@ export default function LyricInput({ onParsed }) {
         }
 
         try {
+            // Sanitize inputs before processing
+            const sanitizedLyrics = sanitizeLyrics(lyrics)
+            if (!sanitizedLyrics.trim()) {
+                setError('Please enter valid lyrics')
+                setLoading(false)
+                return
+            }
+
             lyricParser.setProgressCallback(setLoadingMessage)
 
             // Parallel execution: Parse Lyrics AND Search for Audio (if missing)
             const tasks = [
-                lyricParser.parse(lyrics, {
+                lyricParser.parse(sanitizedLyrics, {
                     useAI: useAIRefinement,
                     apiKey: geminiApiKey,
                     model: geminiModel
@@ -65,19 +113,22 @@ export default function LyricInput({ onParsed }) {
             const { parsedLines, allTokens, kanjiTokens, lineTranslations } = results[0]
             const foundAudioUrl = searchingAudio ? results[1] : null
 
-            // Update Audio if found
+            // Update Audio if found and valid
             if (foundAudioUrl) {
-                console.log('AI found audio URL:', foundAudioUrl)
-                setAudioUrl(foundAudioUrl)
-                setAudioUrlInput(foundAudioUrl) // Update local input too
+                const sanitizedAudioUrl = sanitizeURL(foundAudioUrl)
+                if (sanitizedAudioUrl) {
+                    setAudioUrl(sanitizedAudioUrl)
+                    setAudioUrlInput(sanitizedAudioUrl)
+                }
             }
 
             setParsedData(parsedLines, allTokens, kanjiTokens, lineTranslations)
             setLoadingMessage('')
+            setError(null) // Clear any previous errors
             onParsed?.()
         } catch (error) {
-            console.error('Parse error:', error)
-            setError(error.message)
+            const errorMessage = handleError(error, 'Lyric parsing')
+            setError(errorMessage)
             setLoadingMessage('')
         } finally {
             setLoading(false)
@@ -107,8 +158,8 @@ export default function LyricInput({ onParsed }) {
             if (result.audioUrl) setAudioUrlInput(result.audioUrl)
 
         } catch (error) {
-            console.error('Auto-fill error:', error)
-            setError('Could not fetch song details: ' + error.message)
+            const errorMessage = handleError(error, 'Auto-fill song details')
+            setError(errorMessage)
         } finally {
             setLoading(false)
             setLoadingMessage('')
@@ -129,18 +180,43 @@ export default function LyricInput({ onParsed }) {
 
     const handleAudioFile = (e) => {
         const file = e.target.files?.[0]
-        if (file) {
-            const url = URL.createObjectURL(file)
-            setAudioUrlInput(url)
+        if (!file) return
+
+        // Validate file type
+        const validAudioTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/m4a', 'audio/aac', 'audio/webm']
+        const isValidType = validAudioTypes.includes(file.type) || 
+                           /\.(mp3|wav|ogg|m4a|aac|webm)$/i.test(file.name)
+        
+        if (!isValidType) {
+            setError('Please select a valid audio file (MP3, WAV, OGG, M4A, AAC, or WebM)')
+            return
         }
+
+        // Revoke previous blob URL if exists
+        if (blobUrlRef.current) {
+            URL.revokeObjectURL(blobUrlRef.current)
+        }
+
+        // Create new blob URL
+        const url = URL.createObjectURL(file)
+        blobUrlRef.current = url
+        setAudioUrlInput(url)
+        setError(null) // Clear any previous errors
     }
 
     const handleClear = () => {
+        // Revoke blob URL if exists
+        if (blobUrlRef.current) {
+            URL.revokeObjectURL(blobUrlRef.current)
+            blobUrlRef.current = null
+        }
+        
         setTitle('')
         setArtist('')
-        setContextInfo('') // Fix: Use correct setter
+        setContextInfo('')
         setAudioUrlInput('')
         setLyrics('')
+        setError(null)
     }
 
     // Sample lyrics for testing
@@ -195,19 +271,24 @@ export default function LyricInput({ onParsed }) {
                         <label className="block text-sm text-text-secondary mb-1.5">
                             Song Title
                         </label>
-                        <input
-                            type="text"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            placeholder="例: Lemon"
-                            className={cn(
-                                'w-full px-3 py-2.5 rounded-xl',
-                                'bg-bg-tertiary/50 border border-white/10',
-                                'text-text-primary placeholder:text-text-muted',
-                                'focus:outline-none focus:border-accent-cyan/50 focus:ring-1 focus:ring-accent-cyan/30',
-                                'transition-all'
-                            )}
-                        />
+                            <input
+                                type="text"
+                                value={title}
+                                onChange={(e) => {
+                                    const sanitized = sanitizeSongMetadata(e.target.value) || ''
+                                    setTitle(sanitized)
+                                }}
+                                placeholder="例: Lemon"
+                                maxLength={200}
+                                aria-label="Song title"
+                                className={cn(
+                                    'w-full px-3 py-2.5 rounded-xl',
+                                    'bg-bg-tertiary/50 border border-white/10',
+                                    'text-text-primary placeholder:text-text-muted',
+                                    'focus:outline-none focus:border-accent-cyan/50 focus:ring-1 focus:ring-accent-cyan/30',
+                                    'transition-all'
+                                )}
+                            />
                     </div>
                     <div>
                         <label className="block text-sm text-text-secondary mb-1.5">
@@ -217,8 +298,13 @@ export default function LyricInput({ onParsed }) {
                             <input
                                 type="text"
                                 value={artist}
-                                onChange={(e) => setArtist(e.target.value)}
+                                onChange={(e) => {
+                                    const sanitized = sanitizeSongMetadata(e.target.value) || ''
+                                    setArtist(sanitized)
+                                }}
                                 placeholder="例: 米津玄師"
+                                maxLength={200}
+                                aria-label="Artist name"
                                 className={cn(
                                     'flex-1 px-3 py-2.5 rounded-xl min-w-0',
                                     'bg-bg-tertiary/50 border border-white/10',
@@ -240,9 +326,19 @@ export default function LyricInput({ onParsed }) {
                         </div>
                         {/* Local Error Display */}
                         {useLyricStore.getState().error && (
-                            <p className="text-xs text-accent-pink mt-1 ml-1 shake-animation">
-                                {useLyricStore.getState().error}
-                            </p>
+                            <div className="flex items-center gap-2 mt-1 ml-1">
+                                <p className="text-xs text-accent-pink shake-animation">
+                                    {useLyricStore.getState().error}
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => useLyricStore.getState().setError(null)}
+                                    className="text-xs text-text-muted hover:text-text-primary"
+                                    aria-label="Dismiss error"
+                                >
+                                    ✕
+                                </button>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -255,16 +351,24 @@ export default function LyricInput({ onParsed }) {
                         </label>
                         <div className="flex gap-2">
                             <input
-                                type="text"
+                                type="url"
                                 value={audioUrl}
-                                onChange={(e) => setAudioUrlInput(e.target.value)}
+                                onChange={(e) => {
+                                    const url = e.target.value
+                                    // Allow empty or valid URLs
+                                    if (!url || isValidYouTubeURL(url) || sanitizeURL(url)) {
+                                        setAudioUrlInput(url)
+                                    }
+                                }}
                                 placeholder="YouTube URL..."
+                                aria-label="Audio URL (YouTube)"
                                 className={cn(
                                     'flex-1 px-3 py-2.5 rounded-xl min-w-0',
                                     'bg-bg-tertiary/50 border border-white/10',
                                     'text-text-primary placeholder:text-text-muted',
                                     'focus:outline-none focus:border-accent-cyan/50 focus:ring-1 focus:ring-accent-cyan/30',
-                                    'transition-all'
+                                    'transition-all',
+                                    audioUrl && !isValidYouTubeURL(audioUrl) && !sanitizeURL(audioUrl) && 'border-accent-pink/50'
                                 )}
                             />
                             <a
@@ -284,8 +388,9 @@ export default function LyricInput({ onParsed }) {
                         </label>
                         <input
                             type="file"
-                            accept="audio/*"
+                            accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.webm"
                             onChange={handleAudioFile}
+                            aria-label="Upload audio file"
                             className={cn(
                                 'w-full px-3 py-[7px] rounded-xl',
                                 'bg-bg-tertiary/50 border border-white/10',
@@ -297,6 +402,9 @@ export default function LyricInput({ onParsed }) {
                                 'hover:file:bg-accent-cyan/30'
                             )}
                         />
+                        <p className="text-xs text-text-muted mt-1">
+                            Supported formats: MP3, WAV, OGG, M4A, AAC, WebM
+                        </p>
                     </div>
                 </div>
 
@@ -351,6 +459,7 @@ export default function LyricInput({ onParsed }) {
                         onChange={handleLyricsChange}
                         placeholder="ここに歌詞を貼り付けてください...&#10;Paste lyrics here..."
                         rows={6}
+                        aria-label="Song lyrics"
                         className={cn(
                             'w-full px-4 py-3 rounded-xl resize-none',
                             'bg-bg-tertiary/50 border border-white/10',
