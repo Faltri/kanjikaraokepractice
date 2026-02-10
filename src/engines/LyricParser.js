@@ -34,9 +34,10 @@ class LyricParser {
         try {
             this.kuroshiro = new Kuroshiro()
 
-            // Use CDN for dictionary files to avoid local serving issues with .gz files
-            const dictPath = 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/'
-            logger.debug('Initializing Kuromoji with CDN dictPath:', dictPath)
+            // Use local dictionary files instead of CDN for reliability
+            // This requires copying node_modules/kuromoji/dict/*.dat.gz to public/dict/
+            const dictPath = '/dict/'
+            logger.debug('Initializing Kuromoji with local dictPath:', dictPath)
 
             this.analyzer = new KuromojiAnalyzer({
                 dictPath: dictPath
