@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { cn } from '../../utils/helpers'
+import { cn, toHiragana } from '../../utils/helpers'
 import { TOKEN_TYPES } from '../../utils/constants'
 import { useSettingsStore } from '../../stores/useSettingsStore'
 
@@ -36,10 +36,10 @@ function TokenBlock({
                         {token.text}
                     </span>
                     <rt className={cn(
-                        'text-[0.5em] font-normal furigana-text',
+                        'text-[0.6em] font-normal select-none',
                         isHighlighted ? 'text-accent-pink' : 'text-text-secondary'
                     )}>
-                        {token.reading}
+                        {toHiragana(token.reading)}
                     </rt>
                 </ruby>
             ) : (

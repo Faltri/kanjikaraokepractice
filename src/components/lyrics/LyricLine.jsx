@@ -12,7 +12,7 @@ function LyricLine({
     return (
         <p
             className={cn(
-                'text-xl sm:text-2xl leading-loose py-2 transition-all duration-300',
+                'text-xl sm:text-2xl leading-[3] py-2 transition-all duration-300',
                 isActive ? 'opacity-100' : 'opacity-50',
                 isActive && 'scale-[1.02]',
                 className

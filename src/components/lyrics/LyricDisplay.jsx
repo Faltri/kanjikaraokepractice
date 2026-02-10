@@ -71,7 +71,7 @@ export default function LyricDisplay({
             <Card variant="dark" padding="lg">
                 <div
                     ref={containerRef}
-                    className="max-h-[50vh] overflow-y-auto space-y-1 jp-text"
+                    className="max-h-[50vh] overflow-y-auto space-y-1 jp-text pt-6 px-2"
                 >
                     {parsedLines.map((tokens, lineIndex) => (
                         <motion.div
