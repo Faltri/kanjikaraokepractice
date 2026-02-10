@@ -46,7 +46,7 @@ class LyricParser {
             // Add timeout to prevent indefinite hanging
             const initPromise = this.kuroshiro.init(this.analyzer)
             const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Japanese dictionary initialization timed out (15s)')), 15000)
+                setTimeout(() => reject(new Error('Japanese dictionary initialization timed out (60s)')), 60000)
             )
 
             await Promise.race([initPromise, timeoutPromise])
